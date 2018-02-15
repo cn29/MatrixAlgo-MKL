@@ -3,12 +3,12 @@
 n = 20000;
 k = 100;
 smax = 20;
-A = sprand(n, n, 0.0001);
+A = sprand(n, n, 0.0002);
 Uk = rand(n, k);
 UkT = Uk.';
 x = randn(n, 1);
 diagv = rand(k,1);
-diagm = diag(diagv);
+% diagm = diag(diagv);
 timer2 = 0;
 timer3 = 0;
 iter = 4;
@@ -26,12 +26,12 @@ for s = 1:smax
     else
         fprintf(' %d', s);
     end
-    t2 = tic;
+    t1 = tic;
     for i = 1:iter
-        r = new_alg(A, x, Uk, UkT, s, diagm, 1.01);
+        r = new_alg(A, x, Uk, UkT, s, diagv, 1.01);
     end
     
-    timer2 = toc(t2);
+    timer2 = toc(t1);
     timelist1(s) = timer2/iter;
 end
 
@@ -51,14 +51,12 @@ for s = 1:smax
     end
     t2 = tic;
     for i = 1:iter
-        r = normal_alg(A, x, Uk, UkT, s);
+        r = normal_alg(A, x, Uk, UkT, s, 1.01);
     end
     timer2 = toc(t2);
     timelist3(s) = timer2/iter;
 end
 
-disp(['(timer2) tic toc: ' 9 num2str(timer2)])
-disp(['(timer3) CPU time: ' 9 num2str(timer3)])
 
 toc(timestart)
 %%  plot results
@@ -73,9 +71,9 @@ hold on;
 title('with or without A*x')
 
 %% functions
-function r = normal_alg(A, x, Uk, UkT, s)
+function r = normal_alg(A, x, Uk, UkT, s, sigma)
     for i = 1:s
-        x = A * x + Uk * (UkT * x);
+        x = A * x + sigma * (Uk * (UkT * x));
     end
     r = x;
 end
@@ -87,20 +85,20 @@ function r = removeA_alg(x, Uk, UkT, s)
     r = x;
 end
 
-function r = new_alg(A, x, Uk, UkT, s, diagm, sigma)
+function r = new_alg(A, x, Uk, UkT, s, diagv, sigma)
     d = UkT * x;
-    diagms = {};
+    diagvs = {};
     Wk = {};
     b = {};
-    diagms{1} = diagm^(0);
+    diagvs{1} = diagv.^0;
     for j = 1:s
-        diagms{j+1} = diagm^(j);
-        W = zeros(size(diagm));
+        diagvs{j+1} = diagv.^(j);
+        W = zeros(size(diagv));
         for i = 1:j
-            W = W + diagms{i}*(diagms{j+1}+sigma)^(j-i);
+            W = W + diag(diagvs{i}.'*(diagvs{j+1}+sigma).^(j-i));
         end
         W = sigma*W;
-        W = W + diagms{j+1};
+        W = W + diag(diagvs{j+1});
         bj = W*d;
         b{j} = bj;
     end
