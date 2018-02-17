@@ -1,9 +1,10 @@
 
 % sparse matrix test
-n = 20000;
-k = 100;
-smax = 20;
-A = sprand(n, n, 0.0002);
+n = 40000;
+k = 400;
+smin = 1;
+smax = 19;
+A = sprand(n, n, 0.0001);
 Uk = rand(n, k);
 UkT = Uk.';
 x = randn(n, 1);
@@ -18,21 +19,27 @@ timestart = tic;
 disp(['App1 starts...'])
 disp(['tictoc capturing...'])
 timelist1 = [];
-fprintf('Current s =   ');
-for s = 1:smax
-    fprintf('\b\b');
-    if s >= 10
-        fprintf('%d', s);
-    else
-        fprintf(' %d', s);
-    end
+% fprintf('Current s =   ');
+for s = smin:smax
+%     fprintf('\b\b');
+%     if s >= 10
+%         fprintf('%d', s);
+%     else
+%         fprintf(' %d', s);
+%     end
+    new_alg(A, x, Uk, UkT, s, diagv, 1.01);
     t1 = tic;
+    timer2 = 0;
     for i = 1:iter
-        r = new_alg(A, x, Uk, UkT, s, diagv, 1.01);
+        [r,timepart1, timepart2, timeall] = new_alg(A, x, Uk, UkT, s, diagv, 1.01);
+        timer2 = timer2 + timeall;
     end
-    
-    timer2 = toc(t1);
+    %timer2 = toc(t1);
     timelist1(s) = timer2/iter;
+    fprintf('s = %d \n', s)
+    fprintf('Part1:\t%.4f \tPortion: %.4f%% \n',timepart1, 100*timepart1/(timepart1+timepart2))
+    fprintf('Part2:\t%.4f \tPortion: %.4f%% \n',timepart2, 100*timepart2/(timepart1+timepart2))
+    
 end
 
 %% for application two: removeA_alg, A*x are removed
@@ -42,18 +49,21 @@ disp(['tictoc capturing...'])
 
 timelist3 = [];
 fprintf('Current s =   ');
-for s = 1:smax
+for s = smin:smax
     fprintf('\b\b');
     if s >= 10
         fprintf('%d', s);
     else
         fprintf(' %d', s);
     end
+    r = normal_alg(A, x, Uk, UkT, s, 1.01);
     t2 = tic;
+    timer2 = 0;
     for i = 1:iter
-        r = normal_alg(A, x, Uk, UkT, s, 1.01);
+        [r,timeall] = normal_alg(A, x, Uk, UkT, s, 1.01);
+        timer2 = timer2 + timeall;
     end
-    timer2 = toc(t2);
+    % timer2 = toc(t2);
     timelist3(s) = timer2/iter;
 end
 
@@ -61,7 +71,7 @@ end
 toc(timestart)
 %%  plot results
 xs = 1:smax;
-plot(xs, timelist1, 'LineWidth', 2);
+plot(xs, timelist1, 'b', 'LineWidth', 2);
 hold on;
 %plot(xs, timelist2,'r', 'LineWidth', 2);
 hold on;
@@ -71,11 +81,13 @@ hold on;
 title('with or without A*x')
 
 %% functions
-function r = normal_alg(A, x, Uk, UkT, s, sigma)
+function [r, timeall] = normal_alg(A, x, Uk, UkT, s, sigma)
+    t1 = tic;
     for i = 1:s
         x = A * x + sigma * (Uk * (UkT * x));
     end
     r = x;
+    timeall = toc(t1);
 end
 
 function r = removeA_alg(x, Uk, UkT, s)
@@ -85,25 +97,34 @@ function r = removeA_alg(x, Uk, UkT, s)
     r = x;
 end
 
-function r = new_alg(A, x, Uk, UkT, s, diagv, sigma)
+function [r, timepart1, timepart2, timeall] = new_alg(A, x, Uk, UkT, s, diagv, sigma)
+    t1 = tic;
     d = UkT * x;
-    diagvs = {};
-    Wk = {};
-    b = {};
-    diagvs{1} = diagv.^0;
+    diagvs = [];
+    Wk = [];
+    b = [];
+    diagvs(:,:,1) = diagv.^0;
+    diagvpa = diagv+sigma;
+    diagvpas(:,:,1) = diagvpa.^0;
+    timepart1 = 0;
+    timepart2 = 0;
     for j = 1:s
-        diagvs{j+1} = diagv.^(j);
+        t2 = tic;
+        diagvpas(:,:,j+1) = diagvpas(:,:,j).'*diagvpa;
+        diagvs(:,:,j+1) = diagvs(:,:,j).'*diagv;
         W = zeros(size(diagv));
         for i = 1:j
-            W = W + diag(diagvs{i}.'*(diagvs{j+1}+sigma).^(j-i));
+            W = W + diagvs(:,:,i).' * diagvpas(:,:,j-i+1);
         end
         W = sigma*W;
-        W = W + diag(diagvs{j+1});
-        bj = W*d;
-        b{j} = bj;
-    end
-    for j = 1:s
-        x = A*x + sigma * Uk * b{j};
+        W = W + diagvs(:,:,j+1);
+        bj = diag(W)*d;
+        timepart1 = timepart1 + toc(t2);
+        t3 = tic;
+        % b(:,:,j) = bj;
+        x = A*x + sigma * (Uk * bj);
+        timepart2 = timepart2 + toc(t3);
     end
     r = x;
+    timeall = toc(t1);
 end
