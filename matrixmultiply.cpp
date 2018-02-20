@@ -35,7 +35,7 @@ using namespace std;
 
 /* Consider adjusting LOOP_COUNT based on the performance of your computer */
 /* to make sure that total run time is at least 1 second */
-#define LOOP_COUNT 10
+#define LOOP_COUNT 5
 #define ALIGN 64
 
 #define CALL_AND_CHECK_STATUS(function, error_message) do { \
@@ -62,18 +62,12 @@ double *CreateMatrix(int m, int n, bool zero = false) {
 	return A;
 }
 
-double *outTranspose(double *A, int m, int n) {
-	double *B = CreateMatrix(m, n);
-	mkl_domatcopy('R', 'T', m, n, 1.0, A, n, B, m);
-	return B;
-}
 
 int main()
 {
 	double *A = NULL, *Uk, *X, *X_k, *X_next;
-	int  n, k, i, j, r, incx, s;
-	double alpha, beta;
-	double sum, res;
+	int  n, k, i, j, incx, s;
+	double sigma, beta;
 	double s_initial, s_elapsed;
 	double  *values_A = NULL;
 	MKL_INT *columns_A = NULL;
@@ -87,41 +81,44 @@ int main()
 		" matrices and alpha and beta are double precision scalars \n\n");
 
 	// dimensions
-	n = 2000;
-	k = 20;
+	n = 200000;
+	k = 400;
 	s = 20;
 	incx = 1;
 
 	printf(" Initializing data for matrix multiplication C=A*B for matrix \n"
 		" A(%ix%i) and matrix B(%ix%i)\n\n", n, n, n, k);
-	alpha = 1.0; beta = 0.0;
+	sigma = 1.0; beta = 0.0;
 
 	printf(" Allocating memory for matrices aligned on 64-byte boundary for better \n"
 		" performance \n\n");
 	Uk = (double *)mkl_malloc(sizeof(double)*n*k, ALIGN);
-	for (int i = 0; i < n*k; i++) 
-		Uk[i] = (double)(i + 1);
-	X = (double *)mkl_malloc(sizeof(double)*n, ALIGN);
-	for (int i = 0; i < n*1; i++) 
-		X[i] = (double)(i + 1);
-	X_k = (double *)mkl_malloc(sizeof(double)*k, ALIGN);
-	for (i = 0; i < (k * 1); i++) 
-		X_k[i] = (double)0.0;
 	X_next = (double *)mkl_malloc(sizeof(double)*n, ALIGN);
-
+	X = (double *)mkl_malloc(sizeof(double)*n, ALIGN);
+	X_k = (double *)mkl_malloc(sizeof(double)*k, ALIGN);
+	double *y = (double *)mkl_malloc(sizeof(double) * n, ALIGN);
 	
+	// alg 2
+	double *d = (double *)mkl_malloc(sizeof(double)*k, ALIGN);
+	double *diagv = (double *)mkl_malloc(sizeof(double)*k, ALIGN);
+	double *diagvs[30], *diagvpas[30];
+	double *diagvtmp = (double *)mkl_malloc(sizeof(double)*k, ALIGN);
+	double *W = (double *)mkl_malloc(sizeof(double)*k, ALIGN);
+	double *W1 = (double *)mkl_malloc(sizeof(double)*k, ALIGN);
+	double *diagW = (double *)mkl_malloc(sizeof(double)*k*k, ALIGN);
+	double *bj = (double *)mkl_malloc(sizeof(double)*k, ALIGN);
 
 	double density = 0.0001;
 	int nnz = density*n*n;
 	printf("Density of the sparse matrix A = %0.5f, Number of non-zero element = %d\n", density, nnz);
 	////// Create sparse matrix ///////
 	/* Allocation of memory */
+	/*
 	values_A = (double *)mkl_malloc(sizeof(double) * nnz, ALIGN);
 	columns_A = (MKL_INT *)mkl_malloc(sizeof(MKL_INT) * nnz, ALIGN);
 	rowIndex_A = (MKL_INT *)mkl_malloc(sizeof(MKL_INT) * (n + 1), ALIGN);
 	
-	double *y = (double *)mkl_malloc(sizeof(double) * n, ALIGN);
-
+	
 	int *index = (int*)mkl_malloc(nnz*sizeof(int), ALIGN);
 	int ind1, ind = 0;
 	set<int> indset;
@@ -130,7 +127,7 @@ int main()
 		ind1 = rand() % (n*n);
 		if (indset.find(ind1) == indset.end()) {
 			indset.insert(ind1);
-			values_A[ind++] = ind1 % 20;
+			values_A[ind++] = (double)(ind1%1000) / 288;
 		}
 	}
 	ind = 0;
@@ -142,8 +139,9 @@ int main()
 	for (i = 1; i < n + 1; i++) {
 		rowIndex_A[i] = rowIndex_A[i - 1] + rowinds[i - 1];
 	}
-
+	
 	/* Printing sparse matrix */
+	/*
 	bool print_sparse = 0;
 	if (print_sparse) {
 		for (i = 0; i < nnz; i++)
@@ -162,12 +160,14 @@ int main()
 			printf("%d\t", rowIndex_A[i]);
 		printf("\n MATRIX A:\nrow# : (value, column) (value, column)\n");
 	}
-
-	if (X_k == NULL || Uk == NULL || X == NULL) {
+	*/
+	
+	if (X_k == NULL || Uk == NULL || X == NULL || X_next == NULL) {
 		printf("\n ERROR: Can't allocate memory for matrices. Aborting... \n\n");
 		mkl_free(Uk);
 		mkl_free(X);
 		mkl_free(X_k);
+		mkl_free(X_next);
 		return 1;
 	}
 
@@ -183,16 +183,14 @@ int main()
 		}
 		printf(" Matrix X: \n");
 		for (i = 0; i<n; i++) {
-			for (j = 0; j<1; j++) {
+			for (j = 0; j<1; j++)
 				printf("%6.0f", X[j + i * 1]);
-			}
 			printf("\n");
 		}
 		printf(" Matrix Uk: \n");
 		for (i = 0; i<n; i++) {
-			for (j = 0; j<k; j++) {
+			for (j = 0; j<k; j++) 
 				printf("%6.0f", Uk[j + i * k]);
-			}
 			printf("\n");
 		}
 	}
@@ -201,49 +199,125 @@ int main()
 	long long llk = k;
 	long long llone = 1;
 	s_initial = dsecnd();
-	for (int ss = 0; ss < s; ss++) {
-		// y = A*x
-		mkl_cspblas_dcsrgemv(&trans, &lln, values_A, rowIndex_A, columns_A, X, y);
-		// UkT * X
-		// cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, llk, llone, lln, alpha, Uk, llk, X, llone, 0.0, X_k, llone);
-		// Uk * (Uk^T * X)
-		cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-			n, 1, k, alpha, Uk, k, X_k, 1, 0.0, X_next, 1);
-		// X = X_next + y
-		for (i = 0; i < n * 1; i++) 
-			X[i] = X_next[i] + y[i];
+	for (int count = 0; count < LOOP_COUNT; count++) {
+		// reset input
+		for (int i = 0; i < n*k; i++)
+			Uk[i] = (double)((i + 1) % 200) / 5.34e3;
+		for (int i = 0; i < n * 1; i++) {
+			X[i] = (double)((i + 1) % 200) / 5.34e3;
+			X_next[i] = 0.0;
+			y[i] = 0.0;
+		}
+		for (i = 0; i < (k * 1); i++)
+			X_k[i] = 0.0;
+		for (int ss = 0; ss < s; ss++) {
+			printf("%d ", ss);
+			// y = A*x
+			// mkl_cspblas_dcsrgemv(&trans, &lln, values_A, rowIndex_A, columns_A, X, y);
+			// UkT * X
+			cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, llk, llone, lln, 1.0, Uk, llk, X, llone, 0.0, X_k, llone);
+			// Uk * (Uk^T * X)
+			cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, n, 1, k, sigma, Uk, k, X_k, 1, 0.0, X_next, 1);
+			// X = X_next + y
+			for (i = 0; i < n * 1; i++)
+				X[i] = X_next[i] + y[i];
+		}
+
+		// update x 
+		// memcpy(X, X_next, sizeof n * 1 * sizeof(double));
+		/* Print result X */
+		bool print_result = 0;
+		if (print_result) {
+			printf(" Result matrix X: \n");
+			for (i = 0; i < n; i++) {
+				for (j = 0; j < 1; j++)
+					printf("%.4e", X[j + i * 1]);
+				printf("\n");
+			}
+		}
+		// double res = cblas_ddot(n, X, incx, X, incx);
+		// printf("Result of vector dot product: %.5e\n", res);
+		printf("Done. \n");
+	}
+	s_elapsed = (dsecnd() - s_initial) / LOOP_COUNT;
+	printf(" == Matrix multiplication using Intel(R) MKL dgemm completed == \n"
+		" == at %.5f milliseconds == \n\n", (s_elapsed * 1000));
+
+	
+		
+	// ========== Computation Loop 2 ========== //
+	s_initial = dsecnd();
+	for (int count = 0; count < LOOP_COUNT; count++) {
+
+		// -- reset inputs --
+		for (int i = 0; i < n*k; i++)
+			Uk[i] = (double)((i + 1) % 200) / 5.34e3;
+		for (int i = 0; i < n * 1; i++) {
+			X[i] = (double)((i + 1) % 200) / 5.34e3;
+			X_next[i] = 0.0;
+			y[i] = 0.0;
+		}
+		for (i = 0; i < (k * 1); i++) {
+			X_k[i] = 0.0;
+			d[i] = 0.0;
+			diagv[i] = (double)((i + 6) % 200) / 5.34e3;
+		}
+
+		// d = UkT * X
+		cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, llk, llone, lln, 1.0, Uk, llk, X, llone, 0.0, d, llone);
+		// diagvpa = diagv + simga
+		diagvs[0] = diagv;
+		double *diagvpa = (double *)mkl_malloc(sizeof(double)*k, ALIGN);
+		double *diagvpatmp = (double *)mkl_malloc(sizeof(double)*k, ALIGN);
+		for (i = 0; i < (k * 1); i++)
+			diagvpa[i] = diagv[i] + sigma;
+		diagvpas[0] = diagvpa;
+
+		for (int ss = 0; ss < s; ss++) {
+			printf("%d ", ss);
+			// diagv and diagvpa 
+			for (int i = 0; i < k; i++) {
+				diagvpatmp[i] = diagvpas[ss][i] * diagvpa[i];
+				diagvtmp[i] = diagvs[ss][i] * diagv[i];
+			}
+			diagvpas[ss + 1] = diagvpatmp;
+			diagvs[ss + 1] = diagvtmp;
+			for (i = 0; i < (k * 1); i++)
+				W[i] = 0.0;
+			for (int i = 0; i < ss; i++) {
+				for (int kk = 0; kk < k; kk++) {
+					W[kk] += diagvs[i][kk] * diagvpas[ss - i + 1][kk];
+				}
+			}
+			// W = W*sigma
+			cblas_daxpy(k, sigma, W, incx, W1, incx);
+			for (i = 0; i < (k * 1); i++)
+				W[i] += diagvs[ss + 1][i];
+			// construct a diagnal matrix 
+			for (i = 0; i < (k * 1); i++) 
+				for (j = 0; j < (k * 1); j++) 
+					if (i == j)
+						diagW[i*k + j] = W1[i];
+					else
+						diagW[i*k + j] = 0.0;
+			// bj = diagW * d
+			for (i = 0; i < (k * 1); i++)
+				bj[i] = 0.0;
+			cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, llk, llone, llk, 1.0, diagW, llk, d, llone, 0.0, bj, llone);
+			// Uk * bj
+			cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, n, 1, k, sigma, Uk, k, bj, 1, 0.0, X_next, 1);
+			// X = X_next + y
+			for (i = 0; i < n * 1; i++)
+				X[i] = X_next[i] + y[i];
+		}
+
+		// double res = cblas_ddot(n, X, incx, X, incx);
+		// printf("Result of vector dot product: %.5e\n", res);
+		printf("Done. \n");
 	}
 	
-	// update x 
-	// memcpy(X, X_next, sizeof n * 1 * sizeof(double));
-	/* Print result X */
-	bool print_result = false;
-	if (print_result) {
-		printf(" Result matrix X: \n");
-		for (i = 0; i < n; i++) {
-			for (j = 0; j < 1; j++)
-				printf("%.4e", X[j + i * 1]);
-			printf("\n");
-		}
-	}
-	res = cblas_ddot(n, X, incx, X, incx);
-	printf("Result of vector dot product: %f\n", res);
-	/*
-	// Uk^T * X
-	cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
-		k, 1, n, alpha, Uk, k, X, 1, 0.0, X_k, 1);
-	// Uk * (Uk^T * X)
-	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-		n, 1, k, alpha, Uk, k, X_k, 1, 0.0, X_next, 1);
-
-	// X = A * X + alpha * Uk * (Uk^T * X)
-	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-		n, 1, n, alpha, A, n, X, 1, 1.0, X_next, 1);
-	// update x 
-	memcpy(X, X_next, sizeof n*1*sizeof(double));
-	*/
-
 	s_elapsed = (dsecnd() - s_initial) / LOOP_COUNT;
+
 
 	printf(" == Matrix multiplication using Intel(R) MKL dgemm completed == \n"
 		" == at %.5f milliseconds == \n\n", (s_elapsed * 1000));
@@ -252,10 +326,13 @@ int main()
 	mkl_free(A);
 	mkl_free(Uk);
 	mkl_free(X);
-	mkl_free(y);
+	//mkl_free(y);
 	mkl_free(X_k);
 	mkl_free(X_next);
-
+	mkl_free(values_A);
+	mkl_free(columns_A);
+	mkl_free(rowIndex_A);
+	
 	///////////////////////////////////////////////////////////////////////////////////
 	
 	printf(" Example completed. \n\n");
