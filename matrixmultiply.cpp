@@ -76,19 +76,17 @@ int main()
 	// random number generator - seed
 	srand(time(NULL));
 
-	printf("\n This example measures performance of rcomputing the real matrix product \n"
-		" C=alpha*A*B+beta*C using a triple nested loop, where A, B, and C are \n"
-		" matrices and alpha and beta are double precision scalars \n\n");
-
 	// dimensions
 	n = 200000;
 	k = 400;
 	s = 20;
 	incx = 1;
-
-	printf(" Initializing data for matrix multiplication C=A*B for matrix \n"
-		" A(%ix%i) and matrix B(%ix%i)\n\n", n, n, n, k);
 	sigma = 1.0; beta = 0.0;
+	printf("\n"
+		" This program compares the performance of two algorithms.\n"
+		" The basic idea is: B = (A + sigma * Uk * Uk.T), X_(n+1) = B * X_(n) \n"
+		" A - (%ix%i), Uk - (%ix%i), X - (%ix%i) \n"
+		" Iterations s = %d, sigma = %.3f", n, n, n, k, n, 1, s, sigma);
 
 	printf(" Allocating memory for matrices aligned on 64-byte boundary for better \n"
 		" performance \n\n");
@@ -97,7 +95,7 @@ int main()
 	X = (double *)mkl_malloc(sizeof(double)*n, ALIGN);
 	X_k = (double *)mkl_malloc(sizeof(double)*k, ALIGN);
 	double *y = (double *)mkl_malloc(sizeof(double) * n, ALIGN);
-	
+
 	// alg 2
 	double *d = (double *)mkl_malloc(sizeof(double)*k, ALIGN);
 	double *diagv = (double *)mkl_malloc(sizeof(double)*k, ALIGN);
@@ -109,59 +107,60 @@ int main()
 	double *bj = (double *)mkl_malloc(sizeof(double)*k, ALIGN);
 
 	double density = 0.0001;
-	int nnz = density*n*n;
-	printf("Density of the sparse matrix A = %0.5f, Number of non-zero element = %d\n", density, nnz);
+	int nnz = density * n*n;
+	printf(" Density of the sparse matrix A = %0.5f, Number of non-zero element = %d\n", density, nnz);
+	printf(" ***** Note: the computation of sparse matrix is neglected. ***** ");
 	////// Create sparse matrix ///////
 	/* Allocation of memory */
 	/*
 	values_A = (double *)mkl_malloc(sizeof(double) * nnz, ALIGN);
 	columns_A = (MKL_INT *)mkl_malloc(sizeof(MKL_INT) * nnz, ALIGN);
 	rowIndex_A = (MKL_INT *)mkl_malloc(sizeof(MKL_INT) * (n + 1), ALIGN);
-	
-	
+
+
 	int *index = (int*)mkl_malloc(nnz*sizeof(int), ALIGN);
 	int ind1, ind = 0;
 	set<int> indset;
 	int *rowinds = (int*)mkl_malloc(sizeof(int)*n, ALIGN);
 	while(indset.size() < nnz) {
-		ind1 = rand() % (n*n);
-		if (indset.find(ind1) == indset.end()) {
-			indset.insert(ind1);
-			values_A[ind++] = (double)(ind1%1000) / 288;
-		}
+	ind1 = rand() % (n*n);
+	if (indset.find(ind1) == indset.end()) {
+	indset.insert(ind1);
+	values_A[ind++] = (double)(ind1%1000) / 288;
+	}
 	}
 	ind = 0;
 	for (set<int>::iterator iter = indset.begin(); iter != indset.end(); iter++, ind++) {
-		columns_A[ind] = *iter % n;
-		rowinds[*iter / n]++;
+	columns_A[ind] = *iter % n;
+	rowinds[*iter / n]++;
 	}
 	rowIndex_A[0] = 0;
 	for (i = 1; i < n + 1; i++) {
-		rowIndex_A[i] = rowIndex_A[i - 1] + rowinds[i - 1];
+	rowIndex_A[i] = rowIndex_A[i - 1] + rowinds[i - 1];
 	}
-	
+
 	/* Printing sparse matrix */
 	/*
 	bool print_sparse = 0;
 	if (print_sparse) {
-		for (i = 0; i < nnz; i++)
-			printf("%6.0f ", values_A[i]);
-		printf("\n");
-		for (i = 0; i < nnz; i++) 
-			printf("%d\t", columns_A[i]);
-		printf("\n");
-		for (auto iter = indset.begin(); iter != indset.end(); iter++) 
-			printf("%d\t", *iter);
-		printf("\n");
-		for (i = 0; i < n; i++) 
-			printf("%d\t", rowinds[i]);
-		printf("\n");
-		for (i = 0; i < n + 1; i++) 
-			printf("%d\t", rowIndex_A[i]);
-		printf("\n MATRIX A:\nrow# : (value, column) (value, column)\n");
+	for (i = 0; i < nnz; i++)
+	printf("%6.0f ", values_A[i]);
+	printf("\n");
+	for (i = 0; i < nnz; i++)
+	printf("%d\t", columns_A[i]);
+	printf("\n");
+	for (auto iter = indset.begin(); iter != indset.end(); iter++)
+	printf("%d\t", *iter);
+	printf("\n");
+	for (i = 0; i < n; i++)
+	printf("%d\t", rowinds[i]);
+	printf("\n");
+	for (i = 0; i < n + 1; i++)
+	printf("%d\t", rowIndex_A[i]);
+	printf("\n MATRIX A:\nrow# : (value, column) (value, column)\n");
 	}
 	*/
-	
+
 	if (X_k == NULL || Uk == NULL || X == NULL || X_next == NULL) {
 		printf("\n ERROR: Can't allocate memory for matrices. Aborting... \n\n");
 		mkl_free(Uk);
@@ -189,12 +188,13 @@ int main()
 		}
 		printf(" Matrix Uk: \n");
 		for (i = 0; i<n; i++) {
-			for (j = 0; j<k; j++) 
+			for (j = 0; j<k; j++)
 				printf("%6.0f", Uk[j + i * k]);
 			printf("\n");
 		}
 	}
 	// ========== Computation Loop 1 ========== //
+	printf("\n Computation of algorithm 1 .... \n");
 	long long lln = n;
 	long long llk = k;
 	long long llone = 1;
@@ -239,13 +239,14 @@ int main()
 		// printf("Result of vector dot product: %.5e\n", res);
 		printf("Done. \n");
 	}
-	s_elapsed = (dsecnd() - s_initial) / LOOP_COUNT;
+	double s_elapsed_1 = (dsecnd() - s_initial) / LOOP_COUNT;
 	printf(" == Matrix multiplication using Intel(R) MKL dgemm completed == \n"
-		" == at %.5f milliseconds == \n\n", (s_elapsed * 1000));
+		" == at %.5f milliseconds == \n\n", (s_elapsed_1 * 1000));
 
-	
-		
+
+
 	// ========== Computation Loop 2 ========== //
+	printf("\n Computation of algorithm 2 .... \n");
 	s_initial = dsecnd();
 	for (int count = 0; count < LOOP_COUNT; count++) {
 
@@ -294,8 +295,8 @@ int main()
 			for (i = 0; i < (k * 1); i++)
 				W[i] += diagvs[ss + 1][i];
 			// construct a diagnal matrix 
-			for (i = 0; i < (k * 1); i++) 
-				for (j = 0; j < (k * 1); j++) 
+			for (i = 0; i < (k * 1); i++)
+				for (j = 0; j < (k * 1); j++)
 					if (i == j)
 						diagW[i*k + j] = W1[i];
 					else
@@ -315,13 +316,14 @@ int main()
 		// printf("Result of vector dot product: %.5e\n", res);
 		printf("Done. \n");
 	}
-	
-	s_elapsed = (dsecnd() - s_initial) / LOOP_COUNT;
+
+	double s_elapsed_2 = (dsecnd() - s_initial) / LOOP_COUNT;
 
 
 	printf(" == Matrix multiplication using Intel(R) MKL dgemm completed == \n"
-		" == at %.5f milliseconds == \n\n", (s_elapsed * 1000));
+		" == at %.5f milliseconds == \n\n", (s_elapsed_2 * 1000));
 
+	printf(" Running time rate: %.3f\n", s_elapsed_1 / s_elapsed_2);
 	printf(" Deallocating memory \n\n");
 	mkl_free(A);
 	mkl_free(Uk);
@@ -332,9 +334,9 @@ int main()
 	mkl_free(values_A);
 	mkl_free(columns_A);
 	mkl_free(rowIndex_A);
-	
+
 	///////////////////////////////////////////////////////////////////////////////////
-	
+
 	printf(" Example completed. \n\n");
 	cin.get();
 	return 0;
